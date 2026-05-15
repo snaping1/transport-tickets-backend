@@ -1,0 +1,11 @@
+.gradle
+build/
+.idea/
+*.class
+*.log
+*.jar
+# Firebase service account — НИКОГДА не коммитить!
+serviceAccountKey.json
+*.json
+!firebase*.json
+.env
