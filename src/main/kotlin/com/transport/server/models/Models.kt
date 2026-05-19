@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class User(
     val id: Int = 0,
-    val firebaseUid: String,
+    val firebaseUid: String? = null,
     val email: String,
     val createdAt: String = ""
 )
@@ -42,13 +42,37 @@ data class Ticket(
 
 // Request/Response DTOs
 @Serializable
-data class VerifyTokenRequest(val idToken: String)
+data class RegisterRequest(val email: String, val password: String)
 
 @Serializable
-data class VerifyTokenResponse(val userId: Int, val firebaseUid: String, val email: String)
+data class LoginRequest(val email: String, val password: String)
+
+@Serializable
+data class AuthResponse(val token: String, val userId: Int, val email: String, val createdAt: String)
 
 @Serializable
 data class BuyTicketRequest(val routeId: Int, val seatCount: Int, val seatNumbers: List<Int> = emptyList())
 
 @Serializable
 data class ApiError(val message: String)
+
+// Admin models
+@Serializable
+data class AdminInfo(val id: Int, val email: String)
+
+@Serializable
+data class AdminLoginRequest(val email: String, val password: String)
+
+@Serializable
+data class AdminLoginResponse(val token: String, val email: String)
+
+@Serializable
+data class CreateRouteRequest(
+    val originCity: String,
+    val destinationCity: String,
+    val departureTime: String,
+    val arrivalTime: String,
+    val price: Double,
+    val totalSeats: Int,
+    val transportType: String
+)

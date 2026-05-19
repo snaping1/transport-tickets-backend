@@ -29,9 +29,6 @@ repositories {
     mavenCentral()
 }
 
-configurations.all {
-    exclude(group = "com.google.guava", module = "listenablefuture")
-}
 
 dependencies {
     implementation("io.ktor:ktor-server-core-jvm:$ktor_version")
@@ -51,8 +48,8 @@ dependencies {
     implementation("org.flywaydb:flyway-core:10.20.0")
     implementation("org.flywaydb:flyway-database-postgresql:10.20.0")
 
-    // Firebase Admin SDK
-    implementation("com.google.firebase:firebase-admin:9.2.0")
+    // BCrypt
+    implementation("org.mindrot:jbcrypt:0.4")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")

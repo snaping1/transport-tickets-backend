@@ -13,11 +13,11 @@ import io.ktor.server.routing.*
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-fun Route.ticketRoutes(ticketDao: TicketDao, routeDao: RouteDao, userDao: UserDao) {
+fun Route.ticketRoutes(ticketDao: TicketDao, routeDao: RouteDao, userDao: UserDao, jwtSecret: String) {
     route("/tickets") {
 
         post("/buy") {
-            val user = call.requireAuth(userDao)
+            val user = call.requireUserAuth(userDao, jwtSecret)
             val request = call.receive<BuyTicketRequest>()
 
             require(request.seatCount in 1..10) { "Seat count must be between 1 and 10" }
@@ -62,24 +62,22 @@ fun Route.ticketRoutes(ticketDao: TicketDao, routeDao: RouteDao, userDao: UserDa
         }
 
         get("/my") {
-            val user = call.requireAuth(userDao)
+            val user = call.requireUserAuth(userDao, jwtSecret)
             val tickets = ticketDao.findByUserId(user.id)
             call.respond(HttpStatusCode.OK, tickets)
         }
 
         delete("/{id}") {
-            val user = call.requireAuth(userDao)
+            val user = call.requireUserAuth(userDao, jwtSecret)
             val ticketId = call.parameters["id"]?.toIntOrNull()
                 ?: throw IllegalArgumentException("Invalid ticket id")
 
             dbQuery { conn ->
-                // Verify ticket belongs to user and get route info for cancellation check
                 val ticket = ticketDao.findById(ticketId)
                     ?: throw NoSuchElementException("Ticket not found")
                 if (ticket.userId != user.id) throw SecurityException("Access denied")
                 if (ticket.status == "cancelled") throw IllegalStateException("Ticket already cancelled")
 
-                // Check that departure is more than 2 hours away
                 val route = routeDao.findById(ticket.routeId)
                     ?: throw NoSuchElementException("Route not found")
                 val departure = Instant.parse(route.departureTime)
