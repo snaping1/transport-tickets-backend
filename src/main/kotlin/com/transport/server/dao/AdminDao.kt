@@ -39,23 +39,29 @@ class AdminDao {
     }
 
     fun getAllRoutes(): List<Route> = dbQuery { conn ->
-        conn.prepareStatement("SELECT * FROM routes ORDER BY departure_time DESC").use { stmt ->
+        conn.prepareStatement("""
+            SELECT r.id, oc.name AS origin_city, dc.name AS destination_city,
+                   r.departure_time, r.arrival_time, r.price, r.total_seats,
+                   r.available_seats, r.transport_type
+            FROM routes r
+            JOIN cities oc ON r.origin_city_id = oc.id
+            JOIN cities dc ON r.destination_city_id = dc.id
+            ORDER BY r.departure_time DESC
+        """.trimIndent()).use { stmt ->
             stmt.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
-                        add(
-                            Route(
-                                id = rs.getInt("id"),
-                                originCity = rs.getString("origin_city"),
-                                destinationCity = rs.getString("destination_city"),
-                                departureTime = rs.getTimestamp("departure_time").toInstant().toString(),
-                                arrivalTime = rs.getTimestamp("arrival_time").toInstant().toString(),
-                                price = rs.getDouble("price"),
-                                totalSeats = rs.getInt("total_seats"),
-                                availableSeats = rs.getInt("available_seats"),
-                                transportType = rs.getString("transport_type")
-                            )
-                        )
+                        add(Route(
+                            id             = rs.getInt("id"),
+                            originCity     = rs.getString("origin_city"),
+                            destinationCity= rs.getString("destination_city"),
+                            departureTime  = rs.getTimestamp("departure_time").toInstant().toString(),
+                            arrivalTime    = rs.getTimestamp("arrival_time").toInstant().toString(),
+                            price          = rs.getDouble("price"),
+                            totalSeats     = rs.getInt("total_seats"),
+                            availableSeats = rs.getInt("available_seats"),
+                            transportType  = rs.getString("transport_type")
+                        ))
                     }
                 }
             }
@@ -63,37 +69,45 @@ class AdminDao {
     }
 
     fun createRoute(req: CreateRouteRequest): Route = dbQuery { conn ->
-        conn.prepareStatement(
-            """
+        fun upsertCity(name: String): Int =
+            conn.prepareStatement(
+                "INSERT INTO cities (name) VALUES (?) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+            ).use { stmt ->
+                stmt.setString(1, name)
+                stmt.executeQuery().use { rs -> rs.next(); rs.getInt("id") }
+            }
+
+        val originId = upsertCity(req.originCity)
+        val destId   = upsertCity(req.destinationCity)
+
+        val newId = conn.prepareStatement("""
             INSERT INTO routes
-                (origin_city, destination_city, departure_time, arrival_time, price, total_seats, available_seats, transport_type)
+                (origin_city_id, destination_city_id, departure_time, arrival_time, price, total_seats, available_seats, transport_type)
             VALUES (?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?)
             RETURNING id
-            """.trimIndent()
-        ).use { stmt ->
-            stmt.setString(1, req.originCity)
-            stmt.setString(2, req.destinationCity)
+        """.trimIndent()).use { stmt ->
+            stmt.setInt(1, originId)
+            stmt.setInt(2, destId)
             stmt.setString(3, req.departureTime)
             stmt.setString(4, req.arrivalTime)
             stmt.setDouble(5, req.price)
             stmt.setInt(6, req.totalSeats)
             stmt.setInt(7, req.totalSeats)
             stmt.setString(8, req.transportType)
-            stmt.executeQuery().use { rs ->
-                rs.next()
-                Route(
-                    id = rs.getInt("id"),
-                    originCity = req.originCity,
-                    destinationCity = req.destinationCity,
-                    departureTime = req.departureTime,
-                    arrivalTime = req.arrivalTime,
-                    price = req.price,
-                    totalSeats = req.totalSeats,
-                    availableSeats = req.totalSeats,
-                    transportType = req.transportType
-                )
-            }
+            stmt.executeQuery().use { rs -> rs.next(); rs.getInt("id") }
         }
+
+        Route(
+            id             = newId,
+            originCity     = req.originCity,
+            destinationCity= req.destinationCity,
+            departureTime  = req.departureTime,
+            arrivalTime    = req.arrivalTime,
+            price          = req.price,
+            totalSeats     = req.totalSeats,
+            availableSeats = req.totalSeats,
+            transportType  = req.transportType
+        )
     }
 
     fun deleteRoute(id: Int): Boolean = dbQuery { conn ->

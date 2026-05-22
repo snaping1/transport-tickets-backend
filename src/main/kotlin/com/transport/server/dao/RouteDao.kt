@@ -9,10 +9,19 @@ class RouteDao {
 
     private data class TariffCounts(val sv: Int, val coupe: Int, val platzkart: Int, val seatCar: Int)
 
+    private val baseSelect = """
+        SELECT r.id, oc.name AS origin_city_name, dc.name AS destination_city_name,
+               r.departure_time, r.arrival_time, r.price, r.total_seats,
+               r.available_seats, r.transport_type
+        FROM routes r
+        JOIN cities oc ON r.origin_city_id = oc.id
+        JOIN cities dc ON r.destination_city_id = dc.id
+    """.trimIndent()
+
     private fun ResultSet.toRoute() = Route(
         id = getInt("id"),
-        originCity = getString("origin_city"),
-        destinationCity = getString("destination_city"),
+        originCity = getString("origin_city_name"),
+        destinationCity = getString("destination_city_name"),
         departureTime = getTimestamp("departure_time").toInstant().toString(),
         arrivalTime = getTimestamp("arrival_time").toInstant().toString(),
         price = getDouble("price"),
@@ -26,25 +35,22 @@ class RouteDao {
         val placeholders = routeIds.joinToString(",") { "?" }
         val occupied = mutableMapOf<Int, MutableList<Int>>()
         conn.prepareStatement(
-            "SELECT route_id, seat_numbers FROM tickets WHERE route_id IN ($placeholders) AND status = 'active' AND seat_numbers IS NOT NULL AND seat_numbers != ''"
+            "SELECT ts.route_id, ts.seat_number FROM ticket_seats ts JOIN tickets t ON ts.ticket_id = t.id WHERE ts.route_id IN ($placeholders) AND t.status = 'active'"
         ).use { stmt ->
             routeIds.forEachIndexed { i, id -> stmt.setInt(i + 1, id) }
             stmt.executeQuery().use { rs ->
                 while (rs.next()) {
-                    val rid = rs.getInt("route_id")
-                    rs.getString("seat_numbers")
-                        .split(",").mapNotNull { it.trim().toIntOrNull() }
-                        .forEach { occupied.getOrPut(rid) { mutableListOf() }.add(it) }
+                    occupied.getOrPut(rs.getInt("route_id")) { mutableListOf() }.add(rs.getInt("seat_number"))
                 }
             }
         }
         return routeIds.associateWith { id ->
             val seats = occupied[id] ?: emptyList()
             TariffCounts(
-                sv = 18 - seats.count { it in 1..18 },
-                coupe = 144 - seats.count { it in 19..162 },
-                platzkart = 432 - seats.count { it in 163..594 },
-                seatCar = 60 - seats.count { it in 595..654 }
+                sv       = 18  - seats.count { it in 1..18 },
+                coupe    = 144 - seats.count { it in 19..162 },
+                platzkart= 432 - seats.count { it in 163..594 },
+                seatCar  = 60  - seats.count { it in 595..654 }
             )
         }
     }
@@ -55,27 +61,27 @@ class RouteDao {
         date: String? = null,
         transportType: String? = null
     ): List<Route> = dbQuery { conn ->
-        val conditions = mutableListOf("departure_time > NOW()")
+        val conditions = mutableListOf("r.departure_time > NOW()")
         val params = mutableListOf<Any>()
 
         if (!origin.isNullOrBlank()) {
-            conditions.add("LOWER(origin_city) LIKE LOWER(?)")
+            conditions.add("LOWER(oc.name) LIKE LOWER(?)")
             params.add("%$origin%")
         }
         if (!destination.isNullOrBlank()) {
-            conditions.add("LOWER(destination_city) LIKE LOWER(?)")
+            conditions.add("LOWER(dc.name) LIKE LOWER(?)")
             params.add("%$destination%")
         }
         if (!date.isNullOrBlank()) {
-            conditions.add("DATE(departure_time AT TIME ZONE 'UTC') = ?::date")
+            conditions.add("DATE(r.departure_time AT TIME ZONE 'UTC') = ?::date")
             params.add(date)
         }
         if (!transportType.isNullOrBlank()) {
-            conditions.add("transport_type = ?")
+            conditions.add("r.transport_type = ?")
             params.add(transportType)
         }
 
-        val sql = "SELECT * FROM routes WHERE ${conditions.joinToString(" AND ")} ORDER BY departure_time"
+        val sql = "$baseSelect WHERE ${conditions.joinToString(" AND ")} ORDER BY r.departure_time"
         val baseRoutes = conn.prepareStatement(sql).use { stmt ->
             params.forEachIndexed { i, param -> stmt.setString(i + 1, param.toString()) }
             stmt.executeQuery().use { rs ->
@@ -90,62 +96,52 @@ class RouteDao {
             if (route.transportType == "train") {
                 val t = perTariff[route.id]
                 route.copy(
-                    svAvailableSeats = t?.sv,
-                    coupeAvailableSeats = t?.coupe,
-                    platzkartAvailableSeats = t?.platzkart,
-                    seatCarAvailableSeats = t?.seatCar
+                    svAvailableSeats       = t?.sv,
+                    coupeAvailableSeats    = t?.coupe,
+                    platzkartAvailableSeats= t?.platzkart,
+                    seatCarAvailableSeats  = t?.seatCar
                 )
             } else route
         }
     }
 
     fun findById(id: Int): Route? = dbQuery { conn ->
-        val route = conn.prepareStatement("SELECT * FROM routes WHERE id = ?").use { stmt ->
+        val route = conn.prepareStatement("$baseSelect WHERE r.id = ?").use { stmt ->
             stmt.setInt(1, id)
-            stmt.executeQuery().use { rs ->
-                if (rs.next()) rs.toRoute() else null
-            }
+            stmt.executeQuery().use { rs -> if (rs.next()) rs.toRoute() else null }
         } ?: return@dbQuery null
 
         if (route.transportType == "train") {
             val t = computePerTariff(listOf(id), conn)[id]
             route.copy(
-                svAvailableSeats = t?.sv,
-                coupeAvailableSeats = t?.coupe,
-                platzkartAvailableSeats = t?.platzkart,
-                seatCarAvailableSeats = t?.seatCar
+                svAvailableSeats       = t?.sv,
+                coupeAvailableSeats    = t?.coupe,
+                platzkartAvailableSeats= t?.platzkart,
+                seatCarAvailableSeats  = t?.seatCar
             )
         } else route
     }
 
     fun getOccupiedSeats(routeId: Int): List<Int> = dbQuery { conn ->
         conn.prepareStatement(
-            "SELECT seat_numbers FROM tickets WHERE route_id = ? AND status = 'active' AND seat_numbers != ''"
+            "SELECT ts.seat_number FROM ticket_seats ts JOIN tickets t ON ts.ticket_id = t.id WHERE ts.route_id = ? AND t.status = 'active'"
         ).use { stmt ->
             stmt.setInt(1, routeId)
             stmt.executeQuery().use { rs ->
-                buildList {
-                    while (rs.next()) {
-                        val nums = rs.getString("seat_numbers")
-                        if (!nums.isNullOrBlank()) {
-                            addAll(nums.split(",").mapNotNull { it.trim().toIntOrNull() })
-                        }
-                    }
-                }
+                buildList { while (rs.next()) add(rs.getInt("seat_number")) }
             }
         }
     }
 
     fun decrementSeats(routeId: Int, count: Int, conn: Connection): Boolean {
-        val updated = conn.prepareStatement(
+        return conn.prepareStatement(
             "UPDATE routes SET available_seats = available_seats - ? WHERE id = ? AND available_seats >= ?"
         ).use { stmt ->
             stmt.setInt(1, count)
             stmt.setInt(2, routeId)
             stmt.setInt(3, count)
-            stmt.executeUpdate()
+            stmt.executeUpdate() > 0
         }
-        return updated > 0
     }
 
     fun incrementSeats(routeId: Int, count: Int, conn: Connection) {
