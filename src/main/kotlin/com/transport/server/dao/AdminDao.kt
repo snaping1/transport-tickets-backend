@@ -68,7 +68,7 @@ class AdminDao {
         }
     }
 
-    fun createRoute(req: CreateRouteRequest): Route = dbQuery { conn ->
+    fun createRoute(req: CreateRouteRequest, adminId: Int): Route = dbQuery { conn ->
         fun upsertCity(name: String): Int =
             conn.prepareStatement(
                 "INSERT INTO cities (name) VALUES (?) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
@@ -82,8 +82,8 @@ class AdminDao {
 
         val newId = conn.prepareStatement("""
             INSERT INTO routes
-                (origin_city_id, destination_city_id, departure_time, arrival_time, price, total_seats, available_seats, transport_type)
-            VALUES (?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?)
+                (origin_city_id, destination_city_id, departure_time, arrival_time, price, total_seats, available_seats, transport_type, created_by_admin_id)
+            VALUES (?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?, ?)
             RETURNING id
         """.trimIndent()).use { stmt ->
             stmt.setInt(1, originId)
@@ -94,6 +94,7 @@ class AdminDao {
             stmt.setInt(6, req.totalSeats)
             stmt.setInt(7, req.totalSeats)
             stmt.setString(8, req.transportType)
+            stmt.setInt(9, adminId)
             stmt.executeQuery().use { rs -> rs.next(); rs.getInt("id") }
         }
 

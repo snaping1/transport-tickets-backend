@@ -9,6 +9,7 @@ import com.transport.server.models.CreateRouteRequest
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -48,7 +49,8 @@ fun Route.adminRoutes(adminDao: AdminDao, jwtSecret: String) {
                     throw IllegalArgumentException("Transport type must be bus, train, or plane")
                 if (req.price <= 0) throw IllegalArgumentException("Price must be positive")
                 if (req.totalSeats <= 0) throw IllegalArgumentException("Total seats must be positive")
-                call.respond(HttpStatusCode.Created, adminDao.createRoute(req))
+                val adminId = call.principal<JWTPrincipal>()!!.payload.getClaim("adminId").asInt()
+                call.respond(HttpStatusCode.Created, adminDao.createRoute(req, adminId))
             }
 
             delete("/routes/{id}") {
