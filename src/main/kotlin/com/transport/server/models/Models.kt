@@ -51,7 +51,25 @@ data class LoginRequest(val email: String, val password: String)
 data class AuthResponse(val token: String, val userId: Int, val email: String, val createdAt: String)
 
 @Serializable
-data class BuyTicketRequest(val routeId: Int, val seatCount: Int, val seatNumbers: List<Int> = emptyList())
+data class PassengerData(
+    val seatNumber: Int = 0,
+    val firstName: String,
+    val lastName: String,
+    val patronymic: String = "",
+    val documentType: String = "passport",
+    val documentSeries: String = "",
+    val documentNumber: String,
+    val birthDate: String = "",
+    val gender: String = "male"
+)
+
+@Serializable
+data class BuyTicketRequest(
+    val routeId: Int,
+    val seatCount: Int,
+    val seatNumbers: List<Int> = emptyList(),
+    val passengers: List<PassengerData> = emptyList()
+)
 
 @Serializable
 data class ApiError(val message: String)

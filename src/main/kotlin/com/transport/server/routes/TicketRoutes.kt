@@ -55,7 +55,7 @@ fun Route.ticketRoutes(ticketDao: TicketDao, routeDao: RouteDao, userDao: UserDa
                 } else {
                     route.price * request.seatCount
                 }
-                ticketDao.create(user.id, request.routeId, request.seatCount, totalPrice, request.seatNumbers, conn)
+                ticketDao.create(user.id, request.routeId, request.seatCount, totalPrice, request.seatNumbers, request.passengers, conn)
             }
 
             call.respond(HttpStatusCode.Created, ticket)

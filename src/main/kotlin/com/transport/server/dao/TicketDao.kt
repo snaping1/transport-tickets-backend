@@ -1,10 +1,12 @@
 package com.transport.server.dao
 
+import com.transport.server.models.PassengerData
 import com.transport.server.models.Route
 import com.transport.server.models.Ticket
 import com.transport.server.plugins.DatabaseFactory.dbQuery
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.Types
 
 class TicketDao {
 
@@ -42,7 +44,15 @@ class TicketDao {
         )
     }
 
-    fun create(userId: Int, routeId: Int, seatCount: Int, totalPrice: Double, seatNumbers: List<Int>, conn: Connection): Ticket {
+    fun create(
+        userId: Int,
+        routeId: Int,
+        seatCount: Int,
+        totalPrice: Double,
+        seatNumbers: List<Int>,
+        passengers: List<PassengerData>,
+        conn: Connection
+    ): Ticket {
         val (ticketId, createdAt) = conn.prepareStatement(
             "INSERT INTO tickets (user_id, route_id, seat_count, total_price, status) VALUES (?, ?, ?, ?, 'active') RETURNING id, created_at"
         ).use { stmt ->
@@ -56,18 +66,50 @@ class TicketDao {
             }
         }
 
-        if (seatNumbers.isNotEmpty()) {
-            conn.prepareStatement(
-                "INSERT INTO ticket_seats (ticket_id, route_id, seat_number) VALUES (?, ?, ?)"
+        // Insert ticket_seats one-by-one to get IDs for passenger FK
+        val seatIdByNumber = mutableMapOf<Int, Int>()
+        seatNumbers.forEach { seatNum ->
+            val seatId = conn.prepareStatement(
+                "INSERT INTO ticket_seats (ticket_id, route_id, seat_number) VALUES (?, ?, ?) RETURNING id"
             ).use { stmt ->
-                seatNumbers.forEach { seat ->
-                    stmt.setInt(1, ticketId)
-                    stmt.setInt(2, routeId)
-                    stmt.setInt(3, seat)
-                    stmt.addBatch()
-                }
-                stmt.executeBatch()
+                stmt.setInt(1, ticketId)
+                stmt.setInt(2, routeId)
+                stmt.setInt(3, seatNum)
+                stmt.executeQuery().use { rs -> rs.next(); rs.getInt("id") }
             }
+            seatIdByNumber[seatNum] = seatId
+        }
+
+        // Insert passengers linked to their seat
+        passengers.forEach { p ->
+            conn.prepareStatement("""
+                INSERT INTO passengers (ticket_id, seat_id, first_name, last_name, patronymic,
+                    document_type, document_series, document_number, birth_date, gender)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::date, ?)
+            """.trimIndent()).use { stmt ->
+                stmt.setInt(1, ticketId)
+                val seatId = seatIdByNumber[p.seatNumber]
+                if (seatId != null) stmt.setInt(2, seatId) else stmt.setNull(2, Types.INTEGER)
+                stmt.setString(3, p.firstName)
+                stmt.setString(4, p.lastName)
+                if (p.patronymic.isBlank()) stmt.setNull(5, Types.VARCHAR) else stmt.setString(5, p.patronymic)
+                stmt.setString(6, p.documentType)
+                if (p.documentSeries.isBlank()) stmt.setNull(7, Types.VARCHAR) else stmt.setString(7, p.documentSeries)
+                stmt.setString(8, p.documentNumber)
+                if (p.birthDate.isBlank()) stmt.setNull(9, Types.DATE) else stmt.setString(9, p.birthDate)
+                stmt.setString(10, p.gender)
+                stmt.executeUpdate()
+            }
+        }
+
+        // Auto-create payment record
+        conn.prepareStatement(
+            "INSERT INTO payments (ticket_id, user_id, amount, payment_method, status) VALUES (?, ?, ?, 'card', 'completed')"
+        ).use { stmt ->
+            stmt.setInt(1, ticketId)
+            stmt.setInt(2, userId)
+            stmt.setDouble(3, totalPrice)
+            stmt.executeUpdate()
         }
 
         return Ticket(
