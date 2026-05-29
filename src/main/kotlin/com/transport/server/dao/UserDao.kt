@@ -9,7 +9,6 @@ class UserDao {
 
     private fun ResultSet.toUser() = User(
         id = getInt("id"),
-        firebaseUid = getString("firebase_uid"),
         email = getString("email"),
         createdAt = getString("created_at")
     )
