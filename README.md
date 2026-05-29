@@ -1,106 +1,67 @@
-# Transport Tickets Server
+# Transport Tickets — Backend
 
-Ktor + PostgreSQL backend for the transport tickets booking app.
+Серверная часть приложения для покупки транспортных билетов. Написана полностью на **Kotlin** с использованием фреймворка **Ktor**.
 
-## Requirements
+## Технологии
 
-- JDK 17+
-- Gradle 8+
-- PostgreSQL database (neon.tech recommended)
-- Firebase project with service account key
-
-## Setup
-
-### 1. Firebase Service Account
-
-1. Open [Firebase Console](https://console.firebase.google.com) → Project Settings → Service Accounts
-2. Click **Generate new private key** → download `serviceAccountKey.json`
-3. Place it in the project root (it's gitignored)
-
-### 2. Neon.tech PostgreSQL
-
-1. Register at [neon.tech](https://neon.tech)
-2. Create a new project → copy the connection string
-3. Format: `jdbc:postgresql://ep-xxx.region.aws.neon.tech/neondb?sslmode=require&user=xxx&password=xxx`
-
-### 3. Environment Variables
-
-Copy `.env.example` to `.env` and fill in the values:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
+| Категория | Инструмент |
 |---|---|
-| `DATABASE_URL` | JDBC URL for neon.tech PostgreSQL |
-| `FIREBASE_CREDENTIALS_FILE` | Path to Firebase service account JSON |
-| `FIREBASE_PROJECT_ID` | Firebase project ID |
-| `PORT` | Server port (default: 8080) |
+| Язык | Kotlin |
+| Framework | Ktor 2.3.7 + Netty |
+| БД | PostgreSQL (Neon.tech) + HikariCP |
+| Миграции | Flyway (V1–V11) |
+| Аутентификация | JWT (собственная, без Firebase) |
+| Сериализация | kotlinx.serialization |
 
-### 4. Build & Run
+## API
+
+### Аутентификация пользователей
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `POST` | `/auth/register` | Регистрация по email и паролю |
+| `POST` | `/auth/login` | Вход, возвращает JWT-токен |
+
+### Защищённые эндпоинты (требуют `Authorization: Bearer <token>`)
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `GET` | `/routes` | Поиск маршрутов (`origin`, `destination`, `date`, `transportType`) |
+| `GET` | `/routes/{id}/seats` | Занятые места на маршруте |
+| `POST` | `/tickets/buy` | Покупка билета |
+| `GET` | `/tickets/my` | Мои билеты |
+| `GET` | `/tickets/{id}` | Детали билета |
+| `DELETE` | `/tickets/{id}` | Отмена билета |
+
+### Администрирование (отдельный JWT)
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `POST` | `/admin/login` | Вход администратора |
+| `GET` | `/admin/routes` | Список маршрутов |
+| `POST` | `/admin/routes` | Добавить маршрут |
+| `DELETE` | `/admin/routes/{id}` | Удалить маршрут |
+
+## База данных
+
+Собственная база данных PostgreSQL на облачном сервисе **Neon.tech**. Схема управляется через Flyway-миграции (V1–V11): маршруты, места, пользователи, пассажиры, билеты, оплаты, администраторы.
+
+## Запуск
 
 ```bash
-# Run locally
 ./gradlew run
-
-# Build fat JAR
-./gradlew shadowJar
-java -jar build/libs/transport-tickets-server-0.0.1-all.jar
-
-# Docker
-docker build -t transport-server .
-docker run -p 8080:8080 \
-  -e DATABASE_URL="..." \
-  -e FIREBASE_CREDENTIALS_FILE="/app/serviceAccountKey.json" \
-  -e FIREBASE_PROJECT_ID="..." \
-  -v /path/to/serviceAccountKey.json:/app/serviceAccountKey.json \
-  transport-server
 ```
 
-## API Endpoints
+Сервер запускается на `http://localhost:8080`.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/verify` | No | Verify Firebase token, create/update user |
-| `GET` | `/routes` | Yes | List routes (filters: origin, destination, date) |
-| `POST` | `/tickets/buy` | Yes | Buy a ticket |
-| `GET` | `/tickets/my` | Yes | My tickets |
-| `DELETE` | `/tickets/{id}` | Yes | Cancel ticket |
-
-### Authorization
-
-All protected endpoints require:
-```
-Authorization: Bearer <Firebase ID Token>
-```
-
-### Example Requests
+Для переопределения базы данных:
 
 ```bash
-# Verify token
-curl -X POST http://localhost:8080/auth/verify \
-  -H "Content-Type: application/json" \
-  -d '{"idToken": "<firebase-id-token>"}'
-
-# Get routes
-curl http://localhost:8080/routes \
-  -H "Authorization: Bearer <firebase-id-token>"
-
-# Buy ticket
-curl -X POST http://localhost:8080/tickets/buy \
-  -H "Authorization: Bearer <firebase-id-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"routeId": 1, "seatCount": 2}'
-
-# Cancel ticket
-curl -X DELETE http://localhost:8080/tickets/5 \
-  -H "Authorization: Bearer <firebase-id-token>"
+export DATABASE_URL=jdbc:postgresql://host:5432/dbname?user=user&password=pass
 ```
 
-## Database Schema
+## Тесты
 
-Tables are created automatically via Flyway migration on first run:
-- `users` — Firebase users
-- `routes` — transport routes with seat availability
-- `tickets` — purchased tickets with status
+```bash
+./gradlew test
+```
